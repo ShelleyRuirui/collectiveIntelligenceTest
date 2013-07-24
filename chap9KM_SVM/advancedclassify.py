@@ -80,14 +80,14 @@ def getlocation(address):
     url1+=quote_plus(address)
     url1+='&sensor=false'
     #+yahookey+'&location='+quote_plus(address)
-    print url1
+    #print url1
     data=urlopen(url1).read()
     doc=parseString(data)
     #lat=doc.getElementsByTagName('Latitude')[0].firstChild.nodeValue
     #lon=doc.getElementsByTagName('Longitude')[0].firstChild.nodeValue
-    lat=doc.getElementsByTagName('geometry')[0].firstChild.firstChild.nodeValue
-    lon=doc.getElementsByTagName('geometry')[0].firstChild.getElementsByTagName('lng')[0].nodeValue
-    print lat,lon
+    lat=doc.getElementsByTagName('lat')[0].firstChild.nodeValue
+    lon=doc.getElementsByTagName('lng')[0].firstChild.nodeValue
+    #print lat,lon
     loc_cache[address]=(float(lat),float(lon))
     return loc_cache[address]
 
@@ -97,3 +97,69 @@ def milesdistance(a1,a2):
     latdif=69.1*(lat2-lat1)
     longdif=53.0*(long2-long1)
     return (latdif**2+longdif**2)**0.5
+
+def loadnumerical():
+    oldrows=loadmatch('matchmaker.csv')
+    newrows=[]
+    for row in oldrows:
+        d=row.data
+        data=[float(d[0]),yesno(d[1]),yesno(d[2]),float(d[5]),yesno(d[6]),yesno(d[7]),
+              matchcount(d[3],d[8]),milesdistance(d[4],d[9]),row.match]
+        newrows.append(matchrow(data))
+    return newrows
+
+def scaledata(rows):
+    low=[999999999.0]*len(rows[0].data)
+    high=[-999999999.0]*len(rows[0].data)
+    #Find the lowest and highest values
+    for row in rows:
+        d=row.data
+        for i in range(len(d)):
+            if d[i]<low[i]:low[i]=d[i]
+            if d[i]>high[i]:high[i]=d[i]
+
+    #Func to scale data
+    def scaleinput(d):
+        return [(d.data[i]-low[i])/(high[i]-low[i]) for i in range(len(low))]
+
+    #Scale all the data
+    newrows=[matchrow(scaleinput(row)+[row.match]) for row in rows]
+
+    return newrows,scaleinput
+
+def rbf(v1,v2,gamma=20):
+    dv=[v1[i]-v2[i] for i in range(len(v1))]
+    l=veclength(dv)
+    return l
+
+def veclength(v):
+    return sum([p**2 for p in v])
+
+def nlclassify(point,rows,offset,gamma=10):
+    sum0=0.0
+    sum1=0.0
+    count0=0
+    count1=0
+
+    for row in rows:
+        if row.match==0:
+            sum0+=rbf(point,row.data,gamma)
+            count0+=1
+        else:
+            sum1+=rbf(point,row.data,gamma)
+            count1+=1
+    y=(1.0/count0)*sum0-(1.0/count1)*sum1+offset
+
+    if y<0: return 0
+    else: return 1
+
+def getoffset(rows,gamma=10):
+    l0=[]
+    l1=[]
+    for row in rows:
+        if row.match==0: l0.append(row.data)
+        else: l1.append(row.data)
+    sum0=sum(sum([rbf(v1,v2,gamma) for v1 in l0]) for v2 in l0)
+    sum1=sum(sum([rbf(v1,v2,gamma) for v1 in l1]) for v2 in l1)
+
+    return (1.0/(len(l1)**2))*sum1-(1.0/(len(l0)**2))*sum0
